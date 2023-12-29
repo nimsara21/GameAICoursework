@@ -1,74 +1,85 @@
 using System.Collections;
 using System.Collections.Generic;
-using Unity.AI.Navigation;
 using UnityEngine;
 using UnityEngine.AI;
 
 public class GenerateGrid : MonoBehaviour
 {
-    public GameObject blockGameObject;
-    public GameObject objectToSpawn;
-    public GameObject waterBlock;
-    public GameObject playerPrefab; // Player prefab to spawn
-    public GameObject healthPotionPrefab;
-    public GameObject coinPrefab;
-    public GameObject weaponPrefab;
-    public GameObject magicSpellPrefab;
-    public GameObject shieldPrefab;
-    public GameObject trapPrefab;
+    [Header("Prefabs")]
+    [SerializeField] private GameObject blockGameObject;
+    [SerializeField] private GameObject objectToSpawn;
+    [SerializeField] private GameObject waterBlock;
+    [SerializeField] private GameObject playerPrefab;
+    [SerializeField] private GameObject healthPotionPrefab;
+    [SerializeField] private GameObject coinPrefab;
+    [SerializeField] private GameObject weaponPrefab;
+    [SerializeField] private GameObject magicSpellPrefab;
+    [SerializeField] private GameObject shieldPrefab;
+    [SerializeField] private GameObject trapPrefab;
+    [SerializeField] private GameObject enemyPrefab;
+    [SerializeField] private GameObject bulletPrefab;
 
-    private int worldSizeX = 40;
-    private int worldSizeZ = 40;
-    public float gridOffset = 1.1f;
+    [Header("Grid Settings")]
+    private int tileSize = 1;
+    private int worldSizeX = 60;
+    private int worldSizeZ = 60;
+    // public float 1 = 0;
     public int noiseHeight = 5;
     public int objectsCount = 25;
     public int lakesCount = 3;
-
     public int numHealthPoints = 4;
     public int numCoins = 5;
     public int numSheilds = 6;
     public int numMagics = 2;
     public int numWeapons = 3;
     public int numTraps = 4;
-
-    Mesh mesh;
-    MeshFilter meshFilter;
-    MeshRenderer meshRenderer;
-    NavMeshSurface navMeshSurface;
-    MeshCollider meshCollider;
+    public int numEnemies = 4;
+    public int numWaypoints = 5;
+    public float distanceBetweenWaypoints = 5f;
 
     private List<Vector3> blockPositions = new List<Vector3>();
-
+    private List<LakeParameters> lakes = new List<LakeParameters>();
     private struct LakeParameters
     {
         public Vector2 center;
         public float radius;
     }
 
-    private List<LakeParameters> lakes = new List<LakeParameters>();
+    private NavMeshData navMeshData = null;
+    private NavMeshSurface navMeshSurface = null;
 
-    // Start is called before the first frame update
     void Start()
     {
-        mesh = new Mesh();
-        mesh.name = "Procedural Terrain";
-        meshFilter = GetComponent<MeshFilter>();
-        meshFilter.mesh = mesh;
-
-        meshRenderer = GetComponent<MeshRenderer>();
-        Material material = new Material(Shader.Find("Particles/Standard Unlit"));
-        meshRenderer.material = material;
-
         navMeshSurface = GetComponent<NavMeshSurface>();
-        meshCollider = GetComponent<MeshCollider>();
+        navMeshSurface.layerMask = LayerMask.GetMask("Walkable");
+        navMeshData = new NavMeshData();
+        navMeshSurface.navMeshData = navMeshData;
 
+        GenerateInitialTiles();
         GenerateGridAndLakes();
-        SpawnObject();
-        SpawnPlayer();  // Spawn a single player
-        SpawnAssets();
-        CreateTerrain();
+        // CreateTerrain();
+        // SpawnObjects();
+       
+        // SpawnAssets();
+        // SpawnObjectToSpawn();
+        // SpawnPlayer();
     }
 
+    private void GenerateInitialTiles()
+{
+    for (int x = 0; x <= worldSizeX; x++)
+    {
+        for (int z = 0; z <= worldSizeZ; z++)
+        {
+            float randomVal = generateNoise(x, z, 8f);
+            Vector3 pos = new Vector3(x * tileSize, randomVal * tileSize, z * tileSize);
+            GameObject thisTile = Instantiate(blockGameObject, pos, Quaternion.identity);
+            thisTile.layer = LayerMask.NameToLayer("Walkable");
+        }
+    }
+    // navMeshSurface.BuildNavMesh();
+}
+    
     private void GenerateGridAndLakes()
     {
         GenerateRandomLakes();
@@ -77,57 +88,31 @@ public class GenerateGrid : MonoBehaviour
         {
             for (int z = 0; z < worldSizeZ; z++)
             {
-                Vector3 pos = new Vector3(x * gridOffset,
+                Vector3 pos = new Vector3(x * 1,
                     generateNoise(x, z, 8f) * noiseHeight,
-                    z * gridOffset);
+                    z * 1);
 
-                // Check if this block is part of any lake
                 if (IsInAnyLake(x, z))
                 {
-                    // Create water block for the lake
-                    GameObject water = Instantiate(waterBlock, pos, Quaternion.identity) as GameObject;
-                    water.tag = "WaterBlock"; // Set the tag to WaterBlock
-
-                    // Add NavMeshObstacle component during runtime
-                    AddNavMeshObstacle(water);
+                    GameObject water = Instantiate(waterBlock, pos, Quaternion.identity);
+                    water.layer = LayerMask.NameToLayer("Not Walkable");
+                    // AddNavMeshObstacle(water);
                 }
                 else
                 {
-                    // Create regular block or other terrain feature
-                    GameObject block = Instantiate(blockGameObject, pos, Quaternion.identity) as GameObject;
+                    GameObject block = Instantiate(blockGameObject, pos, Quaternion.identity);
                     blockPositions.Add(block.transform.position);
                     block.transform.SetParent(this.transform);
-
-                    // Set the tag to WalkableBlock and add a collider
-                    block.tag = "blockGameObject";
-                    AddColliderToBlock(block);
-
-                    // Add a NavMeshAgent component only to walkable objects
-                    if (block.CompareTag("blockGameObject"))
-                    {
-                        NavMeshAgent agent = block.AddComponent<NavMeshAgent>();
-                        agent.radius = gridOffset / 2f; // Adjust the agent radius to half of the block's size
-                        agent.height = 1.0f; // Adjust the agent height to the block's height
-                        agent.baseOffset = 0.5f; // Adjust the base offset to half of the block's height
-                        agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
-                    }
+                    block.layer = LayerMask.NameToLayer("Walkable");
                 }
             }
         }
-    }
-
-    private void AddColliderToBlock(GameObject block)
-    {
-        // Add a collider to the block (you can adjust the collider type as needed)
-        BoxCollider boxCollider = block.AddComponent<BoxCollider>();
-        // Adjust the size and position of the collider to fit your block size
-        boxCollider.size = new Vector3(gridOffset, 1f, gridOffset);
-        boxCollider.center = new Vector3(gridOffset / 2f, 0.5f, gridOffset / 2f);
+        navMeshSurface.BuildNavMesh();
     }
 
     private void GenerateRandomLakes()
     {
-        for (int i = 0; i < lakesCount; i++) // Adjust the number of lakes as needed
+        for (int i = 0; i < lakesCount; i++)
         {
             LakeParameters lake;
             lake.center = new Vector2(Random.Range(0, worldSizeX), Random.Range(0, worldSizeZ));
@@ -138,45 +123,46 @@ public class GenerateGrid : MonoBehaviour
 
     private void AddNavMeshObstacle(GameObject obj)
     {
-        // Add a NavMeshObstacle to make the water block not walkable during runtime
         NavMeshObstacle navMeshObstacle = obj.AddComponent<NavMeshObstacle>();
         navMeshObstacle.shape = NavMeshObstacleShape.Box;
-        navMeshObstacle.size = new Vector3(gridOffset, 1f, gridOffset);
-
-        // Set carve to true to make it totally unwalkable
+        navMeshObstacle.size = new Vector3(1, 1f, 1);
         navMeshObstacle.carveOnlyStationary = false;
         navMeshObstacle.carving = true;
     }
 
-    private void SpawnObject()
+    private void SpawnObjects()
     {
-        for (int c = 0; c < objectsCount; c++)
+        SpawnAssetInRandomLocation(trapPrefab, numTraps);
+    }
+
+    private void SpawnAssetInRandomLocation(GameObject assetPrefab, int numInstances)
+    {
+        for (int i = 0; i < numInstances; ++i)
         {
-            GameObject toPlaceObject = Instantiate(objectToSpawn,
-                ObjectSpawnLocation(),
-                Quaternion.identity);
+            int maxAttempts = 100;
+            int currentAttempt = 0;
+
+            while (currentAttempt < maxAttempts)
+            {
+                Vector3 randomPosition = blockPositions[Random.Range(0, blockPositions.Count)];
+
+                if (!IsInAnyLake((int)randomPosition.x, (int)randomPosition.z))
+                {
+                    Instantiate(assetPrefab, new Vector3(randomPosition.x, randomPosition.y + 0.5f, randomPosition.z), Quaternion.identity);
+                    break;
+                }
+
+                currentAttempt++;
+            }
         }
     }
 
-    private Vector3 ObjectSpawnLocation()
-    {
-        int rndIndex = Random.Range(0, blockPositions.Count);
-        Vector3 newPos = new Vector3(
-            blockPositions[rndIndex].x,
-            blockPositions[rndIndex].y + 0.5f,
-            blockPositions[rndIndex].z);
-
-        blockPositions.RemoveAt(rndIndex);
-
-        return newPos;
-    }
-
     private float generateNoise(int x, int z, float detailScale)
-    {
-        float xNoise = (x + this.transform.position.x) / detailScale;
-        float zNoise = (z + this.transform.position.y) / detailScale;
-        return Mathf.PerlinNoise(xNoise, zNoise);
-    }
+{
+    float xNoise = (x + this.transform.position.x) / detailScale;
+    float zNoise = (z + this.transform.position.z) / detailScale; // Changed from y to z
+    return Mathf.PerlinNoise(xNoise, zNoise);
+}
 
     private bool IsInAnyLake(int x, int z)
     {
@@ -196,10 +182,6 @@ public class GenerateGrid : MonoBehaviour
         return distance <= radius;
     }
 
-    private void CreateTerrain()
-    {
-        navMeshSurface.BuildNavMesh();
-    }
 
     private void SpawnPlayer()
     {
@@ -207,12 +189,11 @@ public class GenerateGrid : MonoBehaviour
 
         if (spawnPosition != Vector3.zero)
         {
-            GameObject player = Instantiate(playerPrefab, spawnPosition, Quaternion.identity);
+            GameObject player = Instantiate(playerPrefab, Vector3.zero, Quaternion.identity);
             NavMeshAgent playerAgent = player.GetComponent<NavMeshAgent>();
 
             if (playerAgent != null)
             {
-                // Set the destination for the player agent
                 Vector3 targetPosition = GetRandomWalkablePosition();
                 playerAgent.SetDestination(targetPosition);
             }
@@ -232,9 +213,7 @@ public class GenerateGrid : MonoBehaviour
         {
             Vector3 randomPosition = blockPositions[Random.Range(0, blockPositions.Count)];
 
-            // Check if the position is not in the water and not on an object to spawn
-            if (!IsInAnyLake((int)randomPosition.x, (int)randomPosition.z) &&
-                !IsOnObjectToSpawn((int)randomPosition.x, (int)randomPosition.z))
+            if (!IsInAnyLake((int)randomPosition.x, (int)randomPosition.z))
             {
                 return randomPosition;
             }
@@ -242,73 +221,85 @@ public class GenerateGrid : MonoBehaviour
             currentAttempt++;
         }
 
-        // If no suitable position is found, return Vector3.zero
         return Vector3.zero;
-    }
-
-    private bool IsOnObjectToSpawn(int x, int z)
-    {
-        foreach (var spawnObjectPosition in blockPositions)
-        {
-            if (Mathf.Approximately(spawnObjectPosition.x, x) && Mathf.Approximately(spawnObjectPosition.z, z))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void SpawnAssets()
     {
-
-        for (int i = 0; i < numHealthPoints; ++i)
+        SpawnAssetInRandomLocation(healthPotionPrefab, numHealthPoints);
+        SpawnAssetInRandomLocation(coinPrefab, numCoins);
+        SpawnAssetInRandomLocation(magicSpellPrefab, numMagics);
+        SpawnAssetInRandomLocation(shieldPrefab, numSheilds);
+        SpawnAssetInRandomLocation(weaponPrefab, numWeapons);
+        SpawnEnemyInRandomLocation(numEnemies);
+    }
+    private void SpawnObjectToSpawn()
+    {
+        for (int c = 0; c < objectsCount; c++)
         {
-            SpawnAssetInRandomLocation(healthPotionPrefab);
+            GameObject toPlaceObject = Instantiate(objectToSpawn,
+                ObjectSpawnLocation(),
+                Quaternion.identity);
+            //toPlaceObject.tag = "Obstacle";
         }
-
-        for (int i = 0; i < numCoins; ++i)
-        {
-            SpawnAssetInRandomLocation(coinPrefab);
-        }
-
-        for (int i = 0; i < numMagics; ++i)
-        {
-            SpawnAssetInRandomLocation(magicSpellPrefab);
-        }
-        for (int i = 0; i < numSheilds; ++i)
-        {
-            SpawnAssetInRandomLocation(shieldPrefab);
-        }
-        for (int i = 0; i < numTraps; ++i)
-        {
-            SpawnAssetInRandomLocation(trapPrefab);
-        }
-        for (int i = 0; i < numWeapons; ++i)
-        {
-            SpawnAssetInRandomLocation(weaponPrefab);
-        }
-
-
     }
 
-    private void SpawnAssetInRandomLocation(GameObject assetPrefab)
+    private Vector3 ObjectSpawnLocation()
     {
-        int maxAttempts = 100;
-        int currentAttempt = 0;
+        int rndIndex = Random.Range(0, blockPositions.Count);
+        Vector3 newPos = new Vector3(
+            blockPositions[rndIndex].x,
+            blockPositions[rndIndex].y + 0.5f,
+            blockPositions[rndIndex].z);
 
-        while (currentAttempt < maxAttempts)
+        blockPositions.RemoveAt(rndIndex);
+
+        return newPos;
+    }
+
+    private void SpawnEnemyInRandomLocation(int numEnemiesToSpawn)
+    {
+        for (int i = 0; i < numEnemiesToSpawn; ++i)
         {
-            Vector3 randomPosition = blockPositions[Random.Range(0, blockPositions.Count)];
+            int maxAttempts = 100;
+            int currentAttempt = 0;
+            bool enemySpawned = false;
 
-            // Check if the position is not in the water and not on an object to spawn
-            if (!IsInAnyLake((int)randomPosition.x, (int)randomPosition.z) &&
-                !IsOnObjectToSpawn((int)randomPosition.x, (int)randomPosition.z))
+            while (currentAttempt < maxAttempts && !enemySpawned)
             {
-                Instantiate(assetPrefab, new Vector3(randomPosition.x, randomPosition.y + 0.5f, randomPosition.z), Quaternion.identity);
-                break;
-            }
+                Vector3 randomPosition = blockPositions[Random.Range(0, blockPositions.Count)];
 
-            currentAttempt++;
+                if (!IsInAnyLake((int)randomPosition.x, (int)randomPosition.z))
+                {
+                    GameObject enemy = Instantiate(enemyPrefab, new Vector3(randomPosition.x, randomPosition.y, randomPosition.z), Quaternion.identity);
+
+                    NavMeshAgent enemyAgent = enemy.GetComponent<NavMeshAgent>();
+                    enemyAgent.radius = 1 / 2f;
+                    enemyAgent.height = 1.0f;
+                    enemyAgent.baseOffset = 0.5f;
+
+                   // EnemyMovement enemyMovement = enemy.AddComponent<EnemyMovement>();
+
+                    //enemyMovement.patrolPoints = new Transform[numWaypoints];
+                    for (int j = 0; j < numWaypoints; j++)
+                    {
+                        float angle = j * 2 * Mathf.PI / numWaypoints;
+                        float x = Mathf.Cos(angle) * distanceBetweenWaypoints;
+                        float z = Mathf.Sin(angle) * distanceBetweenWaypoints;
+
+                        Vector3 waypointPosition = new Vector3(x, 0f, z) + randomPosition;
+                        GameObject waypointObject = new GameObject("Waypoint" + j);
+                        waypointObject.transform.position = waypointPosition;
+                       // enemyMovement.patrolPoints[j] = waypointObject.transform;
+                    }
+
+                    //enemyMovement.bulletPrefab = bulletPrefab;
+
+                    enemySpawned = true;
+                }
+
+                currentAttempt++;
+            }
         }
     }
 }
